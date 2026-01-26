@@ -26,6 +26,20 @@ def apply_indicators(df):
     low_close = (df["low"] - df["close"].shift()).abs()
     df["atr"] = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1).rolling(14).mean()
 
+    # ───── ADX ─────
+    up_move = df["high"].diff()
+    down_move = -df["low"].diff()
+
+    plus_dm = up_move.where((up_move > down_move) & (up_move > 0), 0.0)
+    minus_dm = down_move.where((down_move > up_move) & (down_move > 0), 0.0)
+
+    tr14 = tr.rolling(14).sum()
+    plus_di = 100 * (plus_dm.rolling(14).sum() / tr14)
+    minus_di = 100 * (minus_dm.rolling(14).sum() / tr14)
+
+    dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
+    df["adx"] = dx.rolling(14).mean()
+
     df["signal"] = None
 
     # LONG

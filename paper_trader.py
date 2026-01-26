@@ -8,6 +8,7 @@ from risk import calculate_contract_size
 from telegram import send_telegram
 from utils.trade_logger import init_trade_log, log_trade
 from dotenv import load_dotenv
+from datetime import datetime
 import os
 import ccxt
 
@@ -21,6 +22,11 @@ DRY_RUN = False
 init_trade_log(FILE,"time,symbol,side,entry,exit,net_pnl,balance\n")
 init_trade_log(FILE_POS,"id,symbol\n")
 load_dotenv()
+
+def allowed_trading_hour():
+    hour = datetime.utcnow().hour
+    return 12 <= hour <= 22
+
 if DRY_RUN:
     from execution.paper_executor import PaperExecutor
     executor = PaperExecutor(balance=INITIAL_BALANCE, taker_fee=TAKER_FEE)
@@ -93,7 +99,7 @@ for pos in open_positions:
 
 
 while True:
-
+    print(f"Hora {allowed_trading_hour()}")
     closed_positions = executor.check_closed_positions()
     
     for pos in closed_positions:
@@ -163,6 +169,10 @@ while True:
 
     for symbol in SYMBOLS:
         try:
+            if not allowed_trading_hour():
+                time.sleep(60)
+                continue
+
             ohlcv = fetch_ohlcv(symbol, TIMEFRAME)
             df = pd.DataFrame(
                 ohlcv,
@@ -178,11 +188,20 @@ while True:
             if executor.has_position(symbol):
                 print(f"{symbol} ya tiene posicion abierta - skip")
                 continue
-
+            
             atr = last["atr"]
             price = last["close"]
-
+            atr_pct = last["atr"] / last["close"]
+            
+            print(f"FILTER: {symbol} | ATR: {atr_pct} | ADX: {last['adx']} ")
+            
             if atr is None or atr == 0:
+                continue
+            
+            if atr_pct < 0.002:
+                continue
+
+            if last["adx"] < 20:
                 continue
 
             if last["signal"] == "LONG":
@@ -213,3 +232,5 @@ while True:
             send_telegram(f"⚠️ ERROR {symbol}: {e}")
 
     time.sleep(60)
+
+    
