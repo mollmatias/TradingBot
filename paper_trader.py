@@ -183,7 +183,7 @@ while True:
             last = df.iloc[-1]
             #print(f"Symbol: {symbol} | Price: {last['close']} | EMA: {last['ema200']} | RSI: {last['rsi']} | MACD: {last['macd'] < last['macd_signal']}")
             atr_pct = last["atr"] / last["close"]
-            print(f"FILTER: {symbol} | ATR: {atr_pct} | ADX: {last['adx']} ")
+            #print(f"FILTER: {symbol} | ATR: {atr_pct} | ADX: {last['adx']} ")
             if last["signal"] is None:
                 continue
 
