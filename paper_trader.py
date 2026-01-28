@@ -200,11 +200,11 @@ while True:
             if atr is None or atr == 0:
                 continue
             
-            if atr_pct < 0.002:
-                continue
+            #if atr_pct < 0.002:
+            #    continue
 
-            if last["adx"] < 20:
-                continue
+            #if last["adx"] < 20:
+            #    continue
 
             if last["signal"] == "LONG":
                 sl = price - atr * SL_ATR_MULT
