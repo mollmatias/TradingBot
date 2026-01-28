@@ -79,3 +79,5 @@ def apply_indicators(df):
         ),
         "signal"
     ] = "SHORT"
+
+    return df
