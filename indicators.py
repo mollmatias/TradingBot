@@ -1,63 +1,81 @@
 import pandas as pd
 
 def apply_indicators(df):
+
+
+    # ===============================
+    # INDICADORES
+    # ===============================
+
     # RSI
     delta = df["close"].diff()
     gain = delta.clip(lower=0)
     loss = -delta.clip(upper=0)
+
     avg_gain = gain.rolling(14).mean()
     avg_loss = loss.rolling(14).mean()
+
     rs = avg_gain / avg_loss
     df["rsi"] = 100 - (100 / (1 + rs))
 
     # MACD
-    ema_fast = df["close"].ewm(span=12).mean()
-    ema_slow = df["close"].ewm(span=26).mean()
+    ema_fast = df["close"].ewm(span=12, adjust=False).mean()
+    ema_slow = df["close"].ewm(span=26, adjust=False).mean()
+
     df["macd"] = ema_fast - ema_slow
-    df["macd_signal"] = df["macd"].ewm(span=9).mean()
+    df["macd_signal"] = df["macd"].ewm(span=9, adjust=False).mean()
     df["macd_slope"] = df["macd"].diff()
 
-    # EMA 200 (HTF trend)
-    df["ema200"] = df["close"].ewm(span=200).mean()
+    # EMA 200 (tendencia HTF)
+    df["ema200"] = df["close"].ewm(span=200, adjust=False).mean()
 
     # ATR
     high_low = df["high"] - df["low"]
     high_close = (df["high"] - df["close"].shift()).abs()
     low_close = (df["low"] - df["close"].shift()).abs()
-    df["atr"] = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1).rolling(14).mean()
 
-    # ───── ADX ─────
-    up_move = df["high"].diff()
-    down_move = -df["low"].diff()
+    df["tr"] = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+    df["atr"] = df["tr"].rolling(14).mean()
 
-    plus_dm = up_move.where((up_move > down_move) & (up_move > 0), 0.0)
-    minus_dm = down_move.where((down_move > up_move) & (down_move > 0), 0.0)
+    # Normalización MACD slope
+    df["macd_abs_mean"] = df["macd"].abs().rolling(50).mean()
 
-    tr14 = tr.rolling(14).sum()
-    plus_di = 100 * (plus_dm.rolling(14).sum() / tr14)
-    minus_di = 100 * (minus_dm.rolling(14).sum() / tr14)
+    # ===============================
+    # PARÁMETROS AJUSTADOS
+    # ===============================
 
-    dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
-    df["adx"] = dx.rolling(14).mean()
+    EMA_MARGIN = 0.01          # antes implícito / duro
+    RSI_LONG = 42              # antes 45
+    RSI_SHORT = 58             # antes 55
+
+    MACD_SLOPE_FACTOR = 0.06   # antes 0.05 → más trades
+
+    # ===============================
+    # SEÑALES
+    # ===============================
 
     df["signal"] = None
 
-    # LONG
+    # -------- LONG --------
     df.loc[
-        (df["close"] > df["ema200"]) &
-        (df["rsi"] < 45) &
-        (df["macd"] > df["macd_signal"]) &
-        (df["macd_slope"] > -df["macd"].abs().mean() * 0.05),
+        (
+            (df["close"] > df["ema200"] * (1 - EMA_MARGIN)) &
+            (df["rsi"] < RSI_LONG) &
+            (df["macd"] > df["macd_signal"]) &
+            (df["macd_slope"] >
+            -df["macd_abs_mean"] * MACD_SLOPE_FACTOR)
+        ),
         "signal"
     ] = "LONG"
 
-    # SHORT
+    # -------- SHORT --------
     df.loc[
-        (df["close"] < df["ema200"]) &
-        (df["rsi"] > 55) &
-        (df["macd"] < df["macd_signal"]) &
-        (df["macd_slope"] < df["macd"].abs().mean() * 0.05),
+        (
+            (df["close"] < df["ema200"] * (1 + EMA_MARGIN)) &
+            (df["rsi"] > RSI_SHORT) &
+            (df["macd"] < df["macd_signal"]) &
+            (df["macd_slope"] <
+            df["macd_abs_mean"] * MACD_SLOPE_FACTOR)
+        ),
         "signal"
     ] = "SHORT"
-
-    return df
