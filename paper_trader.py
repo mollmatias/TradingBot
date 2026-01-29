@@ -15,6 +15,8 @@ import ccxt
 
 FILE = "trades_live.csv"
 FILE_POS = "open_positions.csv"
+SIDE = "long"
+SL = 0
 DRY_RUN = False
 
 
@@ -220,7 +222,8 @@ while True:
                 LEVERAGE
             )
 
-
+            SIDE = last["signal"]
+            SL = sl
             executor.open_position(
                 symbol,
                 last["signal"],
@@ -230,8 +233,8 @@ while True:
             )
 
         except Exception as e:
-            print(f"⚠️ ERROR {symbol}: {e}")
-            send_telegram(f"⚠️ ERROR {symbol}: {e}")
+            print(f"⚠️ ERROR {symbol} | {SIDE} : {e}")
+            send_telegram(f"⚠️ ERROR {symbol} | {SIDE} | {SL}: {e}")
 
     time.sleep(60)
 
