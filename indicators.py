@@ -47,8 +47,9 @@ def apply_indicators(df):
     EMA_MARGIN = 0.01          # antes implícito / duro
     RSI_LONG = 42              # antes 45
     RSI_SHORT = 58             # antes 55
-
+    RSI_MARGIN = 0.12
     MACD_SLOPE_FACTOR = 0.06   # antes 0.05 → más trades
+    MACD_MARGIN = 0.3
 
     # ===============================
     # SEÑALES
@@ -60,8 +61,8 @@ def apply_indicators(df):
     df.loc[
         (
             (df["close"] > df["ema200"] * (1 - EMA_MARGIN)) &
-            (df["rsi"] < RSI_LONG) &
-            (df["macd"] > df["macd_signal"]) &
+            (df["rsi"] < RSI_LONG + (100 - RSI_LONG) * RSI_MARGIN) &
+            (df["macd"] > df["macd_signal"] - df["macd_abs_mean"] * MACD_MARGIN) &
             (df["macd_slope"] >
             -df["macd_abs_mean"] * MACD_SLOPE_FACTOR)
         ),
@@ -72,8 +73,8 @@ def apply_indicators(df):
     df.loc[
         (
             (df["close"] < df["ema200"] * (1 + EMA_MARGIN)) &
-            (df["rsi"] > RSI_SHORT) &
-            (df["macd"] < df["macd_signal"]) &
+            (df["rsi"] > RSI_SHORT - RSI_SHORT * RSI_MARGIN) &
+            (df["macd"] < df["macd_signal"] + df["macd_abs_mean"] * MACD_MARGIN) &
             (df["macd_slope"] <
             df["macd_abs_mean"] * MACD_SLOPE_FACTOR)
         ),
