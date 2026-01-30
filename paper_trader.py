@@ -129,18 +129,18 @@ while True:
         rr = abs(price - entry) / sl_dist
 
         # ───── CERRAR 50% EN 1R ─────
-        #if rr >= 1 and not pos["be_set"]:
+        if rr >= 1 and not pos["be_set"]:
+            
+            executor.update_sl(
+                symbol,
+                side,
+                pos["size"],
+                entry
+            )
+            send_telegram(f"🔁 SL movido a BE | {symbol} @ {round(entry, 4)}")
+            pos["be_set"] = True
 
-        #    executor.update_sl(
-        #        symbol,
-        #        side,
-        #        pos["size"],
-        #        entry
-        #    )
-        #    send_telegram(f"🔁 SL movido a BE | {symbol} @ {round(entry, 4)}")
-        #    pos["be_set"] = True
-
-        if rr >= 1 and not pos["trail_on"]:
+        if rr >= 2 and not pos["trail_on"]:
             pos["trail_on"] = True
             print(f"Trailing activado: {symbol}")
             send_telegram(f"Trailing activado en {symbol}")
@@ -149,7 +149,7 @@ while True:
         if pos["trail_on"]:
             if pos["side"] == "LONG":
                 new_sl = price - atr * 1.3
-
+                print(f"new sl {new_sl} | sl {pos['sl']}")
                 if new_sl >= mark:
                     new_sl = mark * 0.9
 
@@ -170,10 +170,6 @@ while True:
 
     for symbol in SYMBOLS:
         try:
-            if not allowed_trading_hour():
-                print(f"Not operable hour")
-                time.sleep(60)
-                continue
 
             ohlcv = fetch_ohlcv(symbol, TIMEFRAME)
             df = pd.DataFrame(
@@ -183,9 +179,8 @@ while True:
 
             df = apply_indicators(df)
             last = df.iloc[-1]
-            #print(f"Symbol: {symbol} | Price: {last['close']} | EMA: {last['ema200']} | RSI: {last['rsi']} | MACD: {last['macd'] < last['macd_signal']}")
             atr_pct = last["atr"] / last["close"]
-            #print(f"FILTER: {symbol} | ATR: {atr_pct} | ADX: {last['adx']} ")
+
             if last["signal"] is None:
                 continue
 
@@ -195,9 +190,6 @@ while True:
             
             atr = last["atr"]
             price = last["close"]
-            
-            
-            
             
             if atr is None or atr == 0:
                 continue

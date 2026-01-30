@@ -23,18 +23,18 @@ PAPER_TRADING = False   # False = LIVE
 # ===== CAPITAL =====
 INITIAL_BALANCE = executor.get_balance()
 
-RISK_PER_TRADE = 0.15
+RISK_PER_TRADE = 0.2
 LEVERAGE = 20
 
 # ===== TP / SL =====
 TP_ATR_MULT = 3.5
-SL_ATR_MULT = 1.3
+SL_ATR_MULT = 1.75
 
 # ===== FEES BITGET (futuros USDT) =====
 TAKER_FEE = 0.0006     # 0.06%
 
 # ===== TIMEFRAME =====
-TIMEFRAME = "15m"
+TIMEFRAME = "1H"
 
 SYMBOLS = [
     "BTC/USDT:USDT",
