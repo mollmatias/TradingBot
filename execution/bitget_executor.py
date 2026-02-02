@@ -59,46 +59,54 @@ class BitgetExecutor:
         risk_usdt = abs(entry_price - sl) * size
         risk_pct = (risk_usdt / balance) * 100
 
-        if risk_pct > MAX_RISK_PCT:
+        if risk_pct > MAX_RISK_PCT * 100:
             send_telegram(
-                f" TRADE BLOQUEADO {symbol} - {side}| Riesgo {risk_pct:.2f} USDT "
-                f"> Max permitido {MAX_RISK_PCT:.2f}"
+                f" TRADE BLOQUEADO {symbol} - {side}| Riesgo {risk_pct:.2f}% "
+                f"> Max permitido {MAX_RISK_PCT:.2f}%"
             )
         else:
-            # 1️⃣ ORDEN MARKET
-            order = self.exchange.create_order(
-                symbol=symbol,
-                type="market",
-                side=order_side,
-                amount=size,
-                params=params
-            )        
+            risk_amount = balance * 0.08
+            sl_distance = abs(entry_price - sl)
+            size = risk_amount / sl_distance
 
-            self.positions[symbol] = {
-                "symbol": symbol,
-                "side": side,
-                "entry": entry_price,
-                "size": size,
-                "original_size": size,  # 👈 clave
-                "sl": sl,
-                "initial_sl":sl,
-                "trail_on":False,
-                "partial_closed": False,
-                "be_set":False
-            }
+            required_margin = (size * entry_price) / 20
+            if required_margin > balance:
+                send_telegram(f"Balance no es suficiente para abrir {side} en {symbol} con el SL en {sl}")
+            else:    
+                # 1️⃣ ORDEN MARKET
+                order = self.exchange.create_order(
+                    symbol=symbol,
+                    type="market",
+                    side=order_side,
+                    amount=size,
+                    params=params
+                )        
+
+                self.positions[symbol] = {
+                    "symbol": symbol,
+                    "side": side,
+                    "entry": entry_price,
+                    "size": size,
+                    "original_size": size,  # 👈 clave
+                    "sl": sl,
+                    "initial_sl":sl,
+                    "trail_on":False,
+                    "partial_closed": False,
+                    "be_set":False
+                }
 
 
-            print(f"🟢 OPEN {side} {symbol} | entry={entry_price:.2f}")
+                print(f"🟢 OPEN {side} {symbol} | entry={entry_price:.2f}")
 
-            print(f"🎯 TP & SL colocados | TP={tp:.2f} | SL={sl:.2f} | Riesgo USDT: {risk_usdt:.4f} | Riesgo %: {risk_pct:.2f}")
-            send_telegram(
-                f"🟢 <b>OPEN {side}</b>\n"
-                f"📌 {symbol}\n"
-                f"💰 Entry: {entry_price:.2f}"
-                f"🎯 TP: {tp:.2f}"
-                f"🎯 SL: {sl:.2f}"
-                f"Riesgo USDT: {risk_usdt:.4f} | Riesgo %: {risk_pct:.2f}"
-            )
+                print(f"🎯 TP & SL colocados | TP={tp:.2f} | SL={sl:.2f} | Riesgo USDT: {risk_usdt:.4f} | Riesgo %: {risk_pct:.2f}")
+                send_telegram(
+                    f"🟢 <b>OPEN {side}</b>\n"
+                    f"📌 {symbol}\n"
+                    f"💰 Entry: {entry_price:.2f}"
+                    f"🎯 TP: {tp:.2f}"
+                    f"🎯 SL: {sl:.2f}"
+                    f"Riesgo USDT: {risk_usdt:.4f} | Riesgo %: {risk_pct:.2f}"
+                )
 
     def check_closed_positions(self):
         closed = []
