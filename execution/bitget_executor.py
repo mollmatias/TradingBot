@@ -1,6 +1,7 @@
 import ccxt
 import time
 from telegram import send_telegram
+from config import MAX_RISK_PCT
 from utils.trade_logger import log_position
 
 class BitgetExecutor:
@@ -43,7 +44,6 @@ class BitgetExecutor:
 
     def open_position(self, symbol, side, size, tp, sl):
         order_side = "buy" if side == "LONG" else "sell"
-        close_side = "sell" if side == "LONG" else "buy"
 
         params = {
             'stopLoss':{
@@ -51,47 +51,53 @@ class BitgetExecutor:
                 'price':sl
             }
         }
-        # 1️⃣ ORDEN MARKET
-        order = self.exchange.create_order(
-            symbol=symbol,
-            type="market",
-            side=order_side,
-            amount=size,
-            params=params
-        )
 
-        entry_price = order["average"]
-        if entry_price is None:
-            ticker = self.exchange.fetch_ticker(symbol)
-            entry_price = ticker["last"]
+        balance = self.get_total_balance()
+        ticker = self.exchange.fetch_ticker(symbol)
+        entry_price = ticker["last"]
         risk_usdt = abs(entry_price - sl) * size
-        risk_pct = (risk_usdt / self.get_total_balance()) * 100
+        risk_pct = (risk_usdt / balance) * 100
 
-        self.positions[symbol] = {
-            "symbol": symbol,
-            "side": side,
-            "entry": entry_price,
-            "size": size,
-            "original_size": size,  # 👈 clave
-            "sl": sl,
-            "initial_sl":sl,
-            "trail_on":False,
-            "partial_closed": False,
-            "be_set":False
-        }
+        if risk_pct > MAX_RISK_PCT:
+            send_telegram(
+                f" TRADE BLOQUEADO | Riesgo {risk_pct:.2f} USDT "
+                f"> Max permitido {MAX_RISK_PCT:.2f}"
+            )
+        else:
+            # 1️⃣ ORDEN MARKET
+            order = self.exchange.create_order(
+                symbol=symbol,
+                type="market",
+                side=order_side,
+                amount=size,
+                params=params
+            )        
+
+            self.positions[symbol] = {
+                "symbol": symbol,
+                "side": side,
+                "entry": entry_price,
+                "size": size,
+                "original_size": size,  # 👈 clave
+                "sl": sl,
+                "initial_sl":sl,
+                "trail_on":False,
+                "partial_closed": False,
+                "be_set":False
+            }
 
 
-        print(f"🟢 OPEN {side} {symbol} | entry={entry_price:.2f}")
+            print(f"🟢 OPEN {side} {symbol} | entry={entry_price:.2f}")
 
-        print(f"🎯 TP & SL colocados | TP={tp:.2f} | SL={sl:.2f} | Riesgo USDT: {risk_usdt:.4f} | Riesgo %: {risk_pct:.2f}")
-        send_telegram(
-            f"🟢 <b>OPEN {side}</b>\n"
-            f"📌 {symbol}\n"
-            f"💰 Entry: {entry_price:.2f}"
-            f"🎯 TP: {tp:.2f}"
-            f"🎯 SL: {sl:.2f}"
-            f"Riesgo USDT: {risk_usdt:.4f} | Riesgo %: {risk_pct:.2f}"
-        )
+            print(f"🎯 TP & SL colocados | TP={tp:.2f} | SL={sl:.2f} | Riesgo USDT: {risk_usdt:.4f} | Riesgo %: {risk_pct:.2f}")
+            send_telegram(
+                f"🟢 <b>OPEN {side}</b>\n"
+                f"📌 {symbol}\n"
+                f"💰 Entry: {entry_price:.2f}"
+                f"🎯 TP: {tp:.2f}"
+                f"🎯 SL: {sl:.2f}"
+                f"Riesgo USDT: {risk_usdt:.4f} | Riesgo %: {risk_pct:.2f}"
+            )
 
     def check_closed_positions(self):
         closed = []
