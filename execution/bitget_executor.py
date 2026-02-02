@@ -61,7 +61,7 @@ class BitgetExecutor:
 
         if risk_pct > MAX_RISK_PCT:
             send_telegram(
-                f" TRADE BLOQUEADO | Riesgo {risk_pct:.2f} USDT "
+                f" TRADE BLOQUEADO {symbol} - {side}| Riesgo {risk_pct:.2f} USDT "
                 f"> Max permitido {MAX_RISK_PCT:.2f}"
             )
         else:
