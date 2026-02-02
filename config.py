@@ -34,7 +34,7 @@ SL_ATR_MULT = 1.75
 TAKER_FEE = 0.0006     # 0.06%
 
 # ===== TIMEFRAME =====
-TIMEFRAME = "1H"
+TIMEFRAME = "1h"
 
 SYMBOLS = [
     "BTC/USDT:USDT",
