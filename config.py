@@ -24,7 +24,6 @@ PAPER_TRADING = False   # False = LIVE
 INITIAL_BALANCE = executor.get_balance()
 
 RISK_PER_TRADE = 0.1
-MAX_RISK_PCT = 0.08
 LEVERAGE = 20
 
 # ===== TP / SL =====

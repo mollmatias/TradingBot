@@ -1,8 +1,9 @@
 import ccxt
 import time
 from telegram import send_telegram
-from config import MAX_RISK_PCT
 from utils.trade_logger import log_position
+
+MAX_RISK_PCT = 0.08
 
 class BitgetExecutor:
     def __init__(self, api_key, api_secret, passphrase, taker_fee=0.0006):
