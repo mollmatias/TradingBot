@@ -120,6 +120,7 @@ while True:
         entry = pos["entry"]
         initial_sl = pos["initial_sl"]
         side = pos["side"]
+        atr = pos["atr"]
 
         # Distancia al SL original
         sl_dist = abs(entry - initial_sl)
@@ -147,26 +148,31 @@ while True:
         
         mark = executor.get_mark_price(symbol)
         if pos["trail_on"]:
+
+            buffer = atr * 0.1
             if pos["side"] == "LONG":
-                new_sl = price - atr * 1.3
+                new_sl = price - atr * 1.3                
+
                 print(f"new sl {new_sl} | sl {pos['sl']}")
                 if new_sl >= mark:
-                    new_sl = mark * 0.9
+                    new_sl = mark - buffer
 
                 if new_sl > pos["sl"]:
                     executor.update_sl(symbol, "LONG", pos["size"], new_sl)
                     pos["sl"] = new_sl
                     print(f"🔒 SL actualizado: {symbol} | SL: {round(new_sl,2)}")
+                    send_telegram(f"🔒 SL actualizado: {symbol} | SL: {round(new_sl,2)}")
             else:  # SHORT
                 new_sl = price + atr * 1.3
                 if new_sl <= mark:
-                    new_sl = mark * 1.1
+                    new_sl = mark + buffer
                     
                 if new_sl < pos["sl"]:
                     executor.update_sl(symbol, "SHORT", pos["size"], new_sl)
                     pos["sl"] = new_sl
                     print(f"🔒 SL actualizado: {symbol} | SL: {round(new_sl,2)}")
-            
+                    send_telegram(f"🔒 SL actualizado: {symbol} | SL: {round(new_sl,2)}")
+
 
     for symbol in SYMBOLS:
         try:
@@ -221,7 +227,8 @@ while True:
                 last["signal"],
                 size,
                 tp,
-                sl
+                sl,
+                atr
             )
 
         except Exception as e:

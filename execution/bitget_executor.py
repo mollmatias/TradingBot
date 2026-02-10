@@ -43,7 +43,7 @@ class BitgetExecutor:
             
         return False
 
-    def open_position(self, symbol, side, size, tp, sl):
+    def open_position(self, symbol, side, size, tp, sl,atr):
         order_side = "buy" if side == "LONG" else "sell"
 
         params = {
@@ -87,7 +87,8 @@ class BitgetExecutor:
                 "initial_sl":sl,
                 "trail_on":False,
                 "partial_closed": False,
-                "be_set":False
+                "be_set":False,
+                "atr":atr
             }
 
 
