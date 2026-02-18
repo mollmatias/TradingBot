@@ -112,66 +112,87 @@ while True:
             f"PnL: {net_pnl:.2f}"
         )
 
-        # ───── GESTIÓN ACTIVA: PARCIAL + BE ─────
+    # ───── GESTIÓN ACTIVA PROFESIONAL ─────
+
+    BUFFER = 0.001  # 0.1% seguridad contra mark
+    TRAIL_MULT = 1.3
+
     for symbol, pos in executor.positions.items():
-        ticker = exchange.fetch_ticker(symbol)
-        price = ticker["last"]
-        
-        entry = pos["entry"]
-        initial_sl = pos["initial_sl"]
-        side = pos["side"]
-        atr = pos["atr"]
 
-        # Distancia al SL original
-        sl_dist = abs(entry - initial_sl)
-        if sl_dist == 0:
-            continue
+        try:
+            ticker = exchange.fetch_ticker(symbol)
+            price = ticker["last"]
+            mark = executor.get_mark_price(symbol)
 
-        rr = abs(price - entry) / sl_dist
+            entry = pos["entry"]
+            side = pos["side"]
+            initial_sl = pos["initial_sl"]
+            atr = pos["atr"]
 
-        # ───── CERRAR 50% EN 1R ─────
-        if rr >= 1 and not pos["be_set"]:
-            
-            executor.update_sl(
-                symbol,
-                side,
-                pos["size"],
-                entry
-            )
-            send_telegram(f"🔁 SL movido a BE | {symbol} @ {round(entry, 4)}")
-            pos["be_set"] = True
+            if atr is None or atr <= 0:
+                continue
 
-        if rr >= 2 and not pos["trail_on"]:
-            pos["trail_on"] = True
-            print(f"Trailing activado: {symbol}")
-            send_telegram(f"Trailing activado en {symbol}")
-        
-        mark = executor.get_mark_price(symbol)
-        if pos["trail_on"]:
+            # ───── CÁLCULO R BASADO EN SL ORIGINAL ─────
+            sl_dist = abs(entry - initial_sl)
+            if sl_dist == 0:
+                continue
 
-            buffer = atr * 0.1
-            if pos["side"] == "LONG":
-                new_sl = price - atr * 1.3                
+            rr = abs(price - entry) / sl_dist
 
-                print(f"new sl {new_sl} | sl {pos['sl']}")
-                if new_sl >= mark:
-                    new_sl = mark - buffer
+            # ───── 1️⃣ MOVER A BREAK EVEN EN 1R ─────
+            if rr >= 1 and not pos.get("be_set", False):
 
-                if new_sl > pos["sl"]:
-                    executor.update_sl(symbol, "LONG", pos["size"], new_sl)
-                    pos["sl"] = new_sl
-                    print(f"🔒 SL actualizado: {symbol} | SL: {round(new_sl,2)}")
-                    send_telegram(f"🔒 SL actualizado: {symbol} | SL: {round(new_sl,2)}")
-            else:  # SHORT
-                new_sl = price + atr * 1.3
-                if new_sl <= mark:
-                    new_sl = mark + buffer
-                    
-                if new_sl < pos["sl"]:
-                    executor.update_sl(symbol, "SHORT", pos["size"], new_sl)
-                    pos["sl"] = new_sl
-                    print(f"🔒 SL actualizado: {symbol} | SL: {round(new_sl,2)}")
-                    send_telegram(f"🔒 SL actualizado: {symbol} | SL: {round(new_sl,2)}")
+                new_sl = entry
+
+                # Validar contra mark
+                if side == "LONG" and new_sl >= mark:
+                    new_sl = mark * (1 - BUFFER)
+
+                if side == "SHORT" and new_sl <= mark:
+                    new_sl = mark * (1 + BUFFER)
+
+                executor.update_sl(symbol, side, pos["size"], new_sl)
+
+                pos["sl"] = new_sl
+                pos["be_set"] = True
+
+                send_telegram(f"🔁 SL movido a BE | {symbol}")
+
+            # ───── 2️⃣ ACTIVAR TRAILING EN 2R ─────
+            if rr >= 2 and not pos.get("trail_on", False):
+                pos["trail_on"] = True
+                send_telegram(f"🚀 Trailing activado | {symbol}")
+
+            # ───── 3️⃣ TRAILING DINÁMICO ─────
+            if pos.get("trail_on", False):
+
+                if side == "LONG":
+                    new_sl = price - atr * TRAIL_MULT
+
+                    # Validar contra mark
+                    if new_sl >= mark:
+                        new_sl = mark * (1 - BUFFER)
+
+                    # Nunca bajar SL
+                    if new_sl > pos["sl"]:
+                        executor.update_sl(symbol, "LONG", pos["size"], new_sl)
+                        pos["sl"] = new_sl
+                        send_telegram(f"🔒 SL actualizado LONG | {symbol}")
+
+                else:  # SHORT
+                    new_sl = price + atr * TRAIL_MULT
+
+                    if new_sl <= mark:
+                        new_sl = mark * (1 + BUFFER)
+
+                    # Nunca subir SL
+                    if new_sl < pos["sl"]:
+                        executor.update_sl(symbol, "SHORT", pos["size"], new_sl)
+                        pos["sl"] = new_sl
+                        send_telegram(f"🔒 SL actualizado SHORT | {symbol}")
+
+        except Exception as e:
+            print(f"⚠️ Error gestión {symbol}: {e}")
 
 
     for symbol in SYMBOLS:
