@@ -287,6 +287,18 @@ def equity_curve(file):
 
     send_message(msg)
 
+def send_csv(file):
+
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendDocument"
+
+    with open(file, "rb") as f:
+
+        requests.post(
+            url,
+            data={"chat_id": TELEGRAM_CHAT_ID},
+            files={"document": f}
+        )
+
 def process_commands(symbols, executor, trades_file):
 
     updates = get_updates()
@@ -353,3 +365,7 @@ def process_commands(symbols, executor, trades_file):
         elif text == "/equity":
 
             equity_curve(trades_file)
+
+        elif text == "/csv":
+
+            send_csv("trades_live.csv")
