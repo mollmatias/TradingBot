@@ -1,6 +1,7 @@
 import time
 import pandas as pd
-
+from pair_selector import select_top_pairs
+from dynamic_risk import dynamic_risk
 from config import SYMBOLS,TIMEFRAME,INITIAL_BALANCE,TAKER_FEE,SL_ATR_MULT,TP_ATR_MULT,RISK_PER_TRADE,LEVERAGE
 from data_feed import fetch_ohlcv
 from indicators import apply_indicators
@@ -115,7 +116,7 @@ while True:
     # ───── GESTIÓN ACTIVA PROFESIONAL ─────
 
     BUFFER = 0.001  # 0.1% seguridad contra mark
-    TRAIL_MULT = 1.3
+    TRAIL_MULT = 1.1
 
     for symbol, pos in executor.positions.items():
 
@@ -194,8 +195,9 @@ while True:
         except Exception as e:
             print(f"⚠️ Error gestión {symbol}: {e}")
 
+    symbols = select_top_pairs(TIMEFRAME)
 
-    for symbol in SYMBOLS:
+    for symbol in symbols:
         try:
 
             ohlcv = fetch_ohlcv(symbol, TIMEFRAME)
@@ -207,6 +209,12 @@ while True:
             df = apply_indicators(df)
             last = df.iloc[-1]
             atr_pct = last["atr"] / last["close"]
+
+            if atr_pct < 0.002:
+                continue
+
+            if last["adx"] < 18:
+                continue
 
             if last["signal"] is None:
                 continue
@@ -221,11 +229,6 @@ while True:
             if atr is None or atr == 0:
                 continue
             
-            #if atr_pct < 0.002:
-            #    continue
-
-            #if last["adx"] < 20:
-            #    continue
 
             if last["signal"] == "LONG":
                 sl = price - atr * SL_ATR_MULT
@@ -234,12 +237,15 @@ while True:
                 sl = price + atr * SL_ATR_MULT
                 tp = price - atr * TP_ATR_MULT
 
-            size = calculate_contract_size(
-                INITIAL_BALANCE,
-                RISK_PER_TRADE,
-                price,
-                LEVERAGE
-            )
+            balance = executor.get_total_balance()
+
+            score = max(last["score_long"], last["score_short"])
+
+            risk_amount = dynamic_risk(score, balance)
+
+            sl_distance = abs(price - sl)
+
+            size = risk_amount / sl_distance
 
             SIDE = last["signal"]
             SL = sl

@@ -60,7 +60,7 @@ class BitgetExecutor:
         risk_pct = (risk_usdt / balance) * 100
 
         
-        risk_amount = balance * 0.03
+        risk_amount = balance * 0.01
         sl_distance = abs(entry_price - sl)
         size = risk_amount / sl_distance
 

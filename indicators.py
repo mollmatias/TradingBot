@@ -2,13 +2,10 @@ import pandas as pd
 
 def apply_indicators(df):
 
+    # ================= RSI =================
 
-    # ===============================
-    # INDICADORES
-    # ===============================
-
-    # RSI
     delta = df["close"].diff()
+
     gain = delta.clip(lower=0)
     loss = -delta.clip(upper=0)
 
@@ -18,67 +15,108 @@ def apply_indicators(df):
     rs = avg_gain / avg_loss
     df["rsi"] = 100 - (100 / (1 + rs))
 
-    # MACD
+    # ================= MACD =================
+
     ema_fast = df["close"].ewm(span=12, adjust=False).mean()
     ema_slow = df["close"].ewm(span=26, adjust=False).mean()
 
     df["macd"] = ema_fast - ema_slow
     df["macd_signal"] = df["macd"].ewm(span=9, adjust=False).mean()
-    df["macd_slope"] = df["macd"].diff()
 
-    # EMA 200 (tendencia HTF)
-    df["ema200"] = df["close"].ewm(span=200, adjust=False).mean()
+    # ================= EMA =================
 
-    # ATR
+    df["ema20"] = df["close"].ewm(span=20).mean()
+    df["ema50"] = df["close"].ewm(span=50).mean()
+    df["ema200"] = df["close"].ewm(span=200).mean()
+
+    # ================= ATR =================
+
     high_low = df["high"] - df["low"]
     high_close = (df["high"] - df["close"].shift()).abs()
     low_close = (df["low"] - df["close"].shift()).abs()
 
-    df["tr"] = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+    df["tr"] = pd.concat(
+        [high_low, high_close, low_close], axis=1
+    ).max(axis=1)
+
     df["atr"] = df["tr"].rolling(14).mean()
 
-    # Normalización MACD slope
-    df["macd_abs_mean"] = df["macd"].abs().rolling(50).mean()
+    # ================= ADX =================
 
-    # ===============================
-    # PARÁMETROS AJUSTADOS
-    # ===============================
+    plus_dm = df["high"].diff()
+    minus_dm = df["low"].diff()
 
-    EMA_MARGIN = 0.01          # antes implícito / duro
-    RSI_LONG = 42              # antes 45
-    RSI_SHORT = 58             # antes 55
-    RSI_MARGIN = 0.12
-    MACD_SLOPE_FACTOR = 0.06   # antes 0.05 → más trades
-    MACD_MARGIN = 0.3
+    plus_dm = plus_dm.where((plus_dm > minus_dm) & (plus_dm > 0), 0)
+    minus_dm = minus_dm.where((minus_dm > plus_dm) & (minus_dm > 0), 0)
 
-    # ===============================
-    # SEÑALES
-    # ===============================
+    tr14 = df["tr"].rolling(14).sum()
+
+    plus_di = 100 * (plus_dm.rolling(14).sum() / tr14)
+    minus_di = 100 * (minus_dm.rolling(14).sum() / tr14)
+
+    dx = abs(plus_di - minus_di) / (plus_di + minus_di) * 100
+    df["adx"] = dx.rolling(14).mean()
+
+    # ================= VOLUME =================
+
+    df["vol_mean"] = df["volume"].rolling(20).mean()
+
+    # ================= BOLLINGER =================
+
+    bb_mid = df["close"].rolling(20).mean()
+    bb_std = df["close"].rolling(20).std()
+
+    df["bb_upper"] = bb_mid + 2 * bb_std
+    df["bb_lower"] = bb_mid - 2 * bb_std
+
+    df["bb_width"] = (df["bb_upper"] - df["bb_lower"]) / df["close"]
+    df["bb_width_mean"] = df["bb_width"].rolling(50).mean()
+
+    # ================= BREAKOUT LEVELS =================
+
+    df["high_20"] = df["high"].rolling(20).max()
+    df["low_20"] = df["low"].rolling(20).min()
+
+    # ================= SIGNAL ENGINE =================
+
+    df["score_long"] = 0
+    df["score_short"] = 0
+
+    # TREND
+
+    df.loc[df["ema50"] > df["ema200"], "score_long"] += 2
+    df.loc[df["ema50"] < df["ema200"], "score_short"] += 2
+
+    # MOMENTUM
+
+    df.loc[df["macd"] > df["macd_signal"], "score_long"] += 1
+    df.loc[df["macd"] < df["macd_signal"], "score_short"] += 1
+
+    # RSI
+
+    df.loc[df["rsi"] > 50, "score_long"] += 1
+    df.loc[df["rsi"] < 50, "score_short"] += 1
+
+    # VOLUME
+
+    df.loc[df["volume"] > df["vol_mean"], "score_long"] += 1
+    df.loc[df["volume"] > df["vol_mean"], "score_short"] += 1
+
+    # BREAKOUT
+
+    df.loc[df["close"] > df["high_20"].shift(1), "score_long"] += 2
+    df.loc[df["close"] < df["low_20"].shift(1), "score_short"] += 2
+
+    # VOLATILITY EXPANSION
+
+    df.loc[df["bb_width"] > df["bb_width_mean"], "score_long"] += 1
+    df.loc[df["bb_width"] > df["bb_width_mean"], "score_short"] += 1
+
+    # ================= FINAL SIGNAL =================
 
     df["signal"] = None
 
-    # -------- LONG --------
-    df.loc[
-        (
-            (df["close"] > df["ema200"] * (1 - EMA_MARGIN)) &
-            (df["rsi"] < RSI_LONG + (100 - RSI_LONG) * RSI_MARGIN) &
-            (df["macd"] > df["macd_signal"] - df["macd_abs_mean"] * MACD_MARGIN) &
-            (df["macd_slope"] >
-            -df["macd_abs_mean"] * MACD_SLOPE_FACTOR)
-        ),
-        "signal"
-    ] = "LONG"
-
-    # -------- SHORT --------
-    df.loc[
-        (
-            (df["close"] < df["ema200"] * (1 + EMA_MARGIN)) &
-            (df["rsi"] > RSI_SHORT - RSI_SHORT * RSI_MARGIN) &
-            (df["macd"] < df["macd_signal"] + df["macd_abs_mean"] * MACD_MARGIN) &
-            (df["macd_slope"] <
-            df["macd_abs_mean"] * MACD_SLOPE_FACTOR)
-        ),
-        "signal"
-    ] = "SHORT"
+    df.loc[df["score_long"] >= 4, "signal"] = "LONG"
+    df.loc[df["score_short"] >= 4, "signal"] = "SHORT"
 
     return df
