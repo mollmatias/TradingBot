@@ -1,5 +1,6 @@
 import time
 import pandas as pd
+from execution.bitget_executor import BitgetExecutor
 from pair_selector import select_top_pairs
 from dynamic_risk import dynamic_risk
 from config import SYMBOLS,TIMEFRAME,INITIAL_BALANCE,TAKER_FEE,SL_ATR_MULT,TP_ATR_MULT,RISK_PER_TRADE,LEVERAGE
@@ -12,8 +13,10 @@ from dotenv import load_dotenv
 from datetime import datetime
 from telegram_comandos import BOT_ACTIVE
 from telegram_comandos import process_commands
+
 import os
 import ccxt
+import threading
 
 
 FILE = "trades_live.csv"
@@ -28,60 +31,51 @@ init_trade_log(FILE,"time,symbol,side,entry,exit,net_pnl,balance\n")
 init_trade_log(FILE_POS,"id,symbol\n")
 load_dotenv()
 
+exchange = ccxt.bitget({
+    "apiKey": os.getenv("BITGET_API_KEY"),
+    "secret": os.getenv("BITGET_API_SECRET"),
+    "password": os.getenv("BITGET_API_PASSPHRASE"),
+    "enableRateLimit": True,
+    "options": {
+        "defaultType": "swap",
+        "createMarketBuyOrderRequiresPrice": False
+    }
+})
+
+executor = BitgetExecutor(
+    os.getenv("BITGET_API_KEY"),
+    os.getenv("BITGET_API_SECRET"), 
+    os.getenv("BITGET_API_PASSPHRASE")
+)
+
 def allowed_trading_hour():
     hour = datetime.utcnow().hour
     return 12 <= hour <= 22
 
-if DRY_RUN:
-    from execution.paper_executor import PaperExecutor
-    executor = PaperExecutor(balance=INITIAL_BALANCE, taker_fee=TAKER_FEE)
-else:
-    from execution.bitget_executor import BitgetExecutor
-    from config import TAKER_FEE
-
-    API_KEY = os.getenv("BITGET_API_KEY")
-    API_SECRET = os.getenv("BITGET_API_SECRET")
-    API_PASSPHRASE = os.getenv("BITGET_API_PASSPHRASE")
-
-
-    exchange = ccxt.bitget({
-        "apiKey":API_KEY,
-        "secret":API_SECRET,
-        "password":API_PASSPHRASE,
-        "enableRateLimit":True,
-        "options":{
-            "defaultType":"swap",
-            "createMarketBuyOrderRequiresPrice": False  # 👈🔥 CLAVE
-        }
-    })
-    executor = BitgetExecutor(
-        API_KEY,
-        API_SECRET,
-        API_PASSPHRASE
-    )
-
-print("🤖 BOT INICIADO — LIVE" if not DRY_RUN else "🤖 BOT EN PAPER")
 
 executor.positions = {}
+
 open_positions = executor.load_open_positions()
 
 for pos in open_positions:
+
     symbol = pos["symbol"]
 
-    # Traer ATR actual
-    ohlcv = fetch_ohlcv(symbol,TIMEFRAME)
+    ohlcv = fetch_ohlcv(symbol, TIMEFRAME)
+
     df = pd.DataFrame(
         ohlcv,
-        columns = ["time","open","high","low","close","volume"]
+        columns=["time","open","high","low","close","volume"]
     )
+
     df = apply_indicators(df)
+
     atr = df.iloc[-1]["atr"]
 
     entry = pos["entry"]
+
     side = pos["side"]
 
-    
-    # Reconstruir SL inicial (conservador)
     if side == "LONG":
         initial_sl = entry - atr * SL_ATR_MULT
     else:
@@ -97,191 +91,209 @@ for pos in open_positions:
         "initial_sl": initial_sl,
         "atr": atr,
         "trail_on": False,
-        "be_set":False
+        "be_set": False
     }
 
     print(f"🔄 Recovered position: {symbol} | {side} | entry={entry}")
 
+def telegram_loop(executor):
 
-while True:
-    closed_positions = executor.check_closed_positions()
-    
-    for pos in closed_positions:
-        net_pnl = pos["pnl"]
-        balance = executor.get_total_balance()
+    while True:
 
-            
-        log_trade(
-            FILE,
-            pos["symbol"],
-            pos["side"],
-            pos["entry"],
-            pos["exit"],
-            net_pnl,
-            balance
-        )
+        try:
 
-        send_telegram(
-            f"📉 <b>Trade cerrado</b>\n"
-            f"{pos['symbol']}\n"
-            f"{pos['side']}\n"
-            f"PnL: {net_pnl:.2f}"
-        )
+            process_commands(SYMBOLS, executor, FILE)
 
-    # ───── GESTIÓN ACTIVA PROFESIONAL ─────
+        except Exception as e:
 
-    BUFFER = 0.001  # 0.1% seguridad contra mark
+            print(f"⚠️ Telegram error: {e}")
+
+        time.sleep(1)
+   
+
+def trading_loop(executor, exchange):
+
+    while True:
+
+        for symbol in SYMBOLS:
+
+            try:
+
+                ohlcv = fetch_ohlcv(symbol, TIMEFRAME)
+
+                df = pd.DataFrame(
+                    ohlcv,
+                    columns=["time","open","high","low","close","volume"]
+                )
+
+                df = apply_indicators(df)
+
+                last = df.iloc[-1]
+
+                if last["signal"] is None:
+                    continue
+
+                if executor.has_position(symbol):
+                    continue
+
+                atr = last["atr"]
+                price = last["close"]
+
+                if atr is None or atr == 0:
+                    continue
+
+                if last["signal"] == "LONG":
+
+                    sl = price - atr * SL_ATR_MULT
+                    tp = price + atr * TP_ATR_MULT
+
+                else:
+
+                    sl = price + atr * SL_ATR_MULT
+                    tp = price - atr * TP_ATR_MULT
+
+                balance = executor.get_total_balance()
+
+                score = max(last["score_long"], last["score_short"])
+
+                risk_amount = dynamic_risk(score, balance)
+
+                sl_distance = abs(price - sl)
+
+                size = risk_amount / sl_distance
+
+                executor.open_position(
+                    symbol,
+                    last["signal"],
+                    size,
+                    tp,
+                    sl,
+                    atr
+                )
+
+            except Exception as e:
+
+                print(f"⚠️ ERROR trading {symbol}: {e}")
+
+        time.sleep(60)
+
+def position_manager(executor, exchange):
+
+    BUFFER = 0.001
     TRAIL_MULT = 1.1
 
-    for symbol, pos in executor.positions.items():
+    while True:
 
         try:
-            ticker = exchange.fetch_ticker(symbol)
-            price = ticker["last"]
-            mark = executor.get_mark_price(symbol)
 
-            entry = pos["entry"]
-            side = pos["side"]
-            initial_sl = pos["initial_sl"]
-            atr = pos["atr"]
+            closed_positions = executor.check_closed_positions()
 
-            if atr is None or atr <= 0:
-                continue
+            for pos in closed_positions:
 
-            # ───── CÁLCULO R BASADO EN SL ORIGINAL ─────
-            sl_dist = abs(entry - initial_sl)
-            if sl_dist == 0:
-                continue
+                net_pnl = pos["pnl"]
 
-            rr = abs(price - entry) / sl_dist
+                balance = executor.get_total_balance()
 
-            # ───── 1️⃣ MOVER A BREAK EVEN EN 1R ─────
-            if rr >= 1 and not pos.get("be_set", False):
+                log_trade(
+                    FILE,
+                    pos["symbol"],
+                    pos["side"],
+                    pos["entry"],
+                    pos["exit"],
+                    net_pnl,
+                    balance
+                )
 
-                new_sl = entry
+                send_telegram(
+                    f"📉 Trade cerrado\n"
+                    f"{pos['symbol']} {pos['side']}\n"
+                    f"PnL: {net_pnl:.2f}"
+                )
 
-                # Validar contra mark
-                if side == "LONG" and new_sl >= mark:
-                    new_sl = mark * (1 - BUFFER)
+            for symbol, pos in executor.positions.items():
 
-                if side == "SHORT" and new_sl <= mark:
-                    new_sl = mark * (1 + BUFFER)
+                ticker = exchange.fetch_ticker(symbol)
 
-                executor.update_sl(symbol, side, pos["size"], new_sl)
+                price = ticker["last"]
 
-                pos["sl"] = new_sl
-                pos["be_set"] = True
+                mark = executor.get_mark_price(symbol)
 
-                send_telegram(f"🔁 SL movido a BE | {symbol}")
+                entry = pos["entry"]
 
-            # ───── 2️⃣ ACTIVAR TRAILING EN 2R ─────
-            if rr >= 2 and not pos.get("trail_on", False):
-                pos["trail_on"] = True
-                send_telegram(f"🚀 Trailing activado | {symbol}")
+                side = pos["side"]
 
-            # ───── 3️⃣ TRAILING DINÁMICO ─────
-            if pos.get("trail_on", False):
+                initial_sl = pos["initial_sl"]
 
-                if side == "LONG":
-                    new_sl = price - atr * TRAIL_MULT
+                atr = pos["atr"]
 
-                    # Validar contra mark
-                    if new_sl >= mark:
-                        new_sl = mark * (1 - BUFFER)
+                sl_dist = abs(entry - initial_sl)
 
-                    # Nunca bajar SL
-                    if new_sl > pos["sl"]:
-                        executor.update_sl(symbol, "LONG", pos["size"], new_sl)
-                        pos["sl"] = new_sl
-                        send_telegram(f"🔒 SL actualizado LONG | {symbol}")
+                if sl_dist == 0:
+                    continue
 
-                else:  # SHORT
-                    new_sl = price + atr * TRAIL_MULT
+                rr = abs(price - entry) / sl_dist
 
-                    if new_sl <= mark:
-                        new_sl = mark * (1 + BUFFER)
+                if rr >= 1 and not pos.get("be_set", False):
 
-                    # Nunca subir SL
-                    if new_sl < pos["sl"]:
-                        executor.update_sl(symbol, "SHORT", pos["size"], new_sl)
-                        pos["sl"] = new_sl
-                        send_telegram(f"🔒 SL actualizado SHORT | {symbol}")
+                    new_sl = entry
 
-        except Exception as e:
-            print(f"⚠️ Error gestión {symbol}: {e}")
+                    executor.update_sl(symbol, side, pos["size"], new_sl)
 
-    symbols = select_top_pairs(TIMEFRAME)
-    
-    if not BOT_ACTIVE:
-        time.sleep(60)
-        continue    
-    
-    for symbol in symbols:
-        try:
+                    pos["sl"] = new_sl
+                    pos["be_set"] = True
 
-            ohlcv = fetch_ohlcv(symbol, TIMEFRAME)
-            df = pd.DataFrame(
-                ohlcv,
-                columns=["time", "open", "high", "low", "close", "volume"]
-            )
+                if rr >= 2 and not pos.get("trail_on", False):
 
-            df = apply_indicators(df)
-            last = df.iloc[-1]
-            atr_pct = last["atr"] / last["close"]
+                    pos["trail_on"] = True
 
-            if atr_pct < 0.002:
-                continue
+                if pos.get("trail_on", False):
 
-            if last["adx"] < 18:
-                continue
+                    if side == "LONG":
 
-            if last["signal"] is None:
-                continue
+                        new_sl = price - atr * TRAIL_MULT
 
-            if executor.has_position(symbol):
-                print(f"{symbol} ya tiene posicion abierta - skip")
-                continue
-            
-            atr = last["atr"]
-            price = last["close"]
-            
-            if atr is None or atr == 0:
-                continue
-            
+                        if new_sl > pos["sl"]:
 
-            if last["signal"] == "LONG":
-                sl = price - atr * SL_ATR_MULT
-                tp = price + atr * TP_ATR_MULT
-            else:
-                sl = price + atr * SL_ATR_MULT
-                tp = price - atr * TP_ATR_MULT
+                            executor.update_sl(symbol, "LONG", pos["size"], new_sl)
 
-            balance = executor.get_total_balance()
+                            pos["sl"] = new_sl
 
-            score = max(last["score_long"], last["score_short"])
+                    else:
 
-            risk_amount = dynamic_risk(score, balance)
+                        new_sl = price + atr * TRAIL_MULT
 
-            sl_distance = abs(price - sl)
+                        if new_sl < pos["sl"]:
 
-            size = risk_amount / sl_distance
+                            executor.update_sl(symbol, "SHORT", pos["size"], new_sl)
 
-            SIDE = last["signal"]
-            SL = sl
-            executor.open_position(
-                symbol,
-                last["signal"],
-                size,
-                tp,
-                sl,
-                atr
-            )
+                            pos["sl"] = new_sl
 
         except Exception as e:
-            print(f"⚠️ ERROR {symbol} | {SIDE} : {e}")
-            send_telegram(f"⚠️ ERROR {symbol} | {SIDE} | {SL}: {e}")
 
-    process_commands(SYMBOLS, executor, FILE)
+            print(f"⚠️ Position manager error: {e}")
+
+        time.sleep(5)
+telegram_thread = threading.Thread(
+    target=telegram_loop,
+    args=(executor,),
+    daemon=True
+)
+
+trading_thread = threading.Thread(
+    target=trading_loop,
+    args=(executor, exchange),
+    daemon=True
+)
+
+position_thread = threading.Thread(
+    target=position_manager,
+    args=(executor, exchange),
+    daemon=True
+)
+
+telegram_thread.start()
+trading_thread.start()
+position_thread.start()
+
+while True:
     time.sleep(60)
-
-    
