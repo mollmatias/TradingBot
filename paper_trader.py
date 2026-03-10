@@ -10,6 +10,8 @@ from telegram import send_telegram
 from utils.trade_logger import init_trade_log, log_trade
 from dotenv import load_dotenv
 from datetime import datetime
+from telegram_comandos import BOT_ACTIVE
+from telegram_comandos import process_commands
 import os
 import ccxt
 
@@ -106,6 +108,19 @@ while True:
     
     for pos in closed_positions:
         net_pnl = pos["pnl"]
+        balance = executor.get_total_balance()
+
+            
+        log_trade(
+            FILE,
+            pos["symbol"],
+            pos["side"],
+            pos["entry"],
+            pos["exit"],
+            net_pnl,
+            balance
+        )
+
         send_telegram(
             f"📉 <b>Trade cerrado</b>\n"
             f"{pos['symbol']}\n"
@@ -196,7 +211,11 @@ while True:
             print(f"⚠️ Error gestión {symbol}: {e}")
 
     symbols = select_top_pairs(TIMEFRAME)
-
+    
+    if not BOT_ACTIVE:
+        time.sleep(60)
+        continue    
+    
     for symbol in symbols:
         try:
 
@@ -262,6 +281,7 @@ while True:
             print(f"⚠️ ERROR {symbol} | {SIDE} : {e}")
             send_telegram(f"⚠️ ERROR {symbol} | {SIDE} | {SL}: {e}")
 
+    process_commands(SYMBOLS, executor, FILE)
     time.sleep(60)
 
     
