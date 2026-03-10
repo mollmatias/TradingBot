@@ -1,8 +1,13 @@
 import requests
 import time
 import csv
+from dotenv import load_dotenv
 
-from config import TELEGRAM_TOKEN, TELEGRAM_CHAT_ID
+import os
+
+load_dotenv()
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 BASE_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 
@@ -281,7 +286,7 @@ def equity_curve(file):
         msg += f"{round(b,2)}\n"
 
     send_message(msg)
-    
+
 def process_commands(symbols, executor, trades_file):
 
     updates = get_updates()
