@@ -1,17 +1,19 @@
-def dynamic_risk(score, balance):
+def dynamic_risk(score, balance, strength):
 
-    if score >= 6:
-        risk_pct = 0.014
+    if strength == "SPLUS":
 
-    elif score == 5:
-        risk_pct = 0.01
+        risk_pct = 0.02
 
-    elif score == 4:
-        risk_pct = 0.007
+    elif strength == "STRONG":
+
+        risk_pct = 0.012
+
+    elif score >= 5:
+
+        risk_pct = 0.008
 
     else:
-        risk_pct = 0.004
 
-    risk_amount = balance * risk_pct
+        risk_pct = 0.003
 
-    return risk_amount
+    return balance * risk_pct

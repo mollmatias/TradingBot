@@ -27,7 +27,7 @@ DRY_RUN = False
 
 
 
-init_trade_log(FILE,"time,symbol,side,entry,exit,net_pnl,balance\n")
+init_trade_log(FILE,"time,symbol,side,entry,exit,score,strength,net_pnl,balance\n")
 init_trade_log(FILE_POS,"id,symbol\n")
 load_dotenv()
 
@@ -155,12 +155,15 @@ def trading_loop(executor, exchange):
                 balance = executor.get_total_balance()
 
                 score = max(last["score_long"], last["score_short"])
-
-                risk_amount = dynamic_risk(score, balance)
+                strength = last["signal_strength"]
+                risk_amount = dynamic_risk(score, balance,strength)
 
                 sl_distance = abs(price - sl)
 
                 size = risk_amount / sl_distance
+
+                if size * price < 5:
+                    continue
 
                 executor.open_position(
                     symbol,
@@ -168,7 +171,9 @@ def trading_loop(executor, exchange):
                     size,
                     tp,
                     sl,
-                    atr
+                    atr,
+                    score,
+                    strength
                 )
 
             except Exception as e:
@@ -200,6 +205,8 @@ def position_manager(executor, exchange):
                     pos["side"],
                     pos["entry"],
                     pos["exit"],
+                    pos["score"],
+                    pos["strength"],
                     net_pnl,
                     balance
                 )
@@ -210,10 +217,10 @@ def position_manager(executor, exchange):
                     f"PnL: {net_pnl:.2f}"
                 )
 
-            for symbol, pos in executor.positions.items():
+            for symbol, pos in list(executor.positions.items()):
 
                 ticker = exchange.fetch_ticker(symbol)
-
+                time.sleep(0.2)
                 price = ticker["last"]
 
                 mark = executor.get_mark_price(symbol)
@@ -273,6 +280,7 @@ def position_manager(executor, exchange):
             print(f"⚠️ Position manager error: {e}")
 
         time.sleep(5)
+
 telegram_thread = threading.Thread(
     target=telegram_loop,
     args=(executor,),

@@ -43,7 +43,7 @@ class BitgetExecutor:
             
         return False
 
-    def open_position(self, symbol, side, size, tp, sl,atr):
+    def open_position(self, symbol, side, size, tp, sl,atr,score,strength):
         order_side = "buy" if side == "LONG" else "sell"
 
         params = {
@@ -88,7 +88,9 @@ class BitgetExecutor:
                 "trail_on":False,
                 "partial_closed": False,
                 "be_set":False,
-                "atr":atr
+                "atr":atr,
+                "score":score,
+                "strength":strength
             }
 
 
@@ -96,7 +98,7 @@ class BitgetExecutor:
 
             print(f"🎯 TP & SL colocados | TP={tp:.2f} | SL={sl:.2f} | Riesgo USDT: {risk_usdt:.4f} | Riesgo %: {risk_pct:.2f}")
             send_telegram(
-                f"🟢 <b>OPEN {side}</b>\n"
+                f"🟢 <b>OPEN {strength} {side} WITH SCORE {score}</b>\n"
                 f"📌 {symbol}\n"
                 f"💰 Entry: {entry_price:.2f}"
                 f"🎯 TP: {tp:.2f}"
@@ -120,13 +122,23 @@ class BitgetExecutor:
                 exit_price = ticker["last"]
 
                 pnl = (
-                    (exit_price - pos["entry"]) * pos["size"]
-                    if pos["side"] == "LONG"
-                    else (pos["entry"] - exit_price) * pos["size"]
-                )
+                        (exit_price - pos["entry"]) * pos["size"]
+                        if pos["side"] == "LONG"
+                        else (pos["entry"] - exit_price) * pos["size"]
+                    )
+
+                # ===== FEES =====
+
+                entry_fee = pos["entry"] * pos["size"] * self.taker_fee
+                exit_fee = exit_price * pos["size"] * self.taker_fee
+
+                fees = entry_fee + exit_fee
+
+                net_pnl = pnl - fees
 
                 pos["exit"] = exit_price
-                pos["pnl"] = pnl
+                pos["pnl"] = net_pnl
+                pos["fees"] = fees
                 pos["closed_at"] = time.time()
 
                 closed.append(pos)

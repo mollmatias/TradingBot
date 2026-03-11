@@ -40,7 +40,8 @@ def apply_indicators(df):
     ).max(axis=1)
 
     df["atr"] = df["tr"].rolling(14).mean()
-
+    df["atr_mean"] = df["atr"].rolling(50).mean()
+    df["atr_expansion"] = df["atr"] > df["atr_mean"] * 1.2
     # ================= ADX =================
 
     plus_dm = df["high"].diff()
@@ -112,11 +113,45 @@ def apply_indicators(df):
     df.loc[df["bb_width"] > df["bb_width_mean"], "score_long"] += 1
     df.loc[df["bb_width"] > df["bb_width_mean"], "score_short"] += 1
 
-    # ================= FINAL SIGNAL =================
+    # ATR Expansion Filter
+    df.loc[df["atr_expansion"], "score_long"] += 1
+    df.loc[df["atr_expansion"], "score_short"] += 1
+
+    # ================= SIGNAL =================
 
     df["signal"] = None
 
     df.loc[df["score_long"] >= 4, "signal"] = "LONG"
     df.loc[df["score_short"] >= 4, "signal"] = "SHORT"
+
+    # ================= SIGNAL STRENGTH =================
+
+    df["signal_strength"] = "NORMAL"
+
+    df.loc[
+        (df["score_long"] >= 6),
+        "signal_strength"
+    ] = "STRONG"
+
+    df.loc[
+        (df["score_short"] >= 6),
+        "signal_strength"
+    ] = "STRONG"
+
+    # ================= SPLUS SETUP =================
+
+    df.loc[
+        (df["score_long"] >= 7) &
+        (df["adx"] > 25) &
+        (df["volume"] > df["vol_mean"] * 1.5),
+        "signal_strength"
+    ] = "SPLUS"
+
+    df.loc[
+        (df["score_short"] >= 7) &
+        (df["adx"] > 25) &
+        (df["volume"] > df["vol_mean"] * 1.5),
+        "signal_strength"
+    ] = "SPLUS"
 
     return df

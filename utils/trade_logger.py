@@ -11,8 +11,10 @@ def init_trade_log(file, columns):
         pass
 
 
-def log_trade(file, symbol, side, entry, exit, pnl, balance):
+def log_trade(file, symbol, side, entry, exit, score, strength, pnl, balance):
+
     with open(file, "a", newline="") as f:
+
         writer = csv.writer(f)
 
         writer.writerow([
@@ -21,10 +23,11 @@ def log_trade(file, symbol, side, entry, exit, pnl, balance):
             side,
             round(entry, 4),
             round(exit, 4),
+            score,
+            strength,
             round(pnl, 4),
             round(balance, 2)
         ])
-
 
 def log_position(file, order):
 
