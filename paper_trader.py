@@ -107,7 +107,7 @@ def telegram_loop(executor):
 
         except Exception as e:
 
-            print(f"⚠️ Telegram error: {e}")
+            print(f"⚠️ Telegram error: {repr(e)}")
 
         time.sleep(1)
    

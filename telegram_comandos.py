@@ -15,7 +15,6 @@ BOT_ACTIVE = True
 
 last_update_id = None
 
-
 def get_updates():
 
     global last_update_id
@@ -27,10 +26,20 @@ def get_updates():
     if last_update_id:
         params["offset"] = last_update_id + 1
 
-    r = requests.get(url, params=params).json()
+    try:
 
-    return r["result"]
+        r = requests.get(url, params=params).json()
 
+        if not r.get("ok"):
+            print("⚠️ Telegram API error:", r)
+            return []
+
+        return r.get("result", [])
+
+    except Exception as e:
+
+        print("⚠️ Telegram request error:", e)
+        return []
 
 def send_message(text):
 
@@ -311,8 +320,7 @@ def process_commands(symbols, executor, trades_file):
         if "message" not in u:
             continue
 
-        text = u["message"]["text"]
-
+        text = u["message"].get("text", "")
         if text == "/positions":
 
             show_positions(executor)
