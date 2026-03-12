@@ -14,7 +14,6 @@ def apply_indicators(df):
 
     rs = avg_gain / avg_loss
     df["rsi"] = 100 - (100 / (1 + rs))
-
     # ================= MACD =================
 
     ema_fast = df["close"].ewm(span=12, adjust=False).mean()
@@ -75,8 +74,8 @@ def apply_indicators(df):
 
     # ================= BREAKOUT LEVELS =================
 
-    df["high_20"] = df["high"].rolling(20).max()
-    df["low_20"] = df["low"].rolling(20).min()
+    df["high_35"] = df["high"].rolling(35).max()
+    df["low_35"] = df["low"].rolling(35).min()
 
     # ================= SIGNAL ENGINE =================
 
@@ -85,8 +84,8 @@ def apply_indicators(df):
 
     # TREND
 
-    df.loc[df["ema50"] > df["ema200"], "score_long"] += 2
-    df.loc[df["ema50"] < df["ema200"], "score_short"] += 2
+    df.loc[df["ema50"] > df["ema200"], "score_long"] += 3
+    df.loc[df["ema50"] < df["ema200"], "score_short"] += 3
 
     # MOMENTUM
 
@@ -95,34 +94,25 @@ def apply_indicators(df):
 
     # RSI
 
-    df.loc[df["rsi"] > 50, "score_long"] += 1
-    df.loc[df["rsi"] < 50, "score_short"] += 1
+    df.loc[df["rsi"] > 50, "score_long"] += 2
+    df.loc[df["rsi"] < 50, "score_short"] += 2
 
     # VOLUME
 
-    df.loc[df["volume"] > df["vol_mean"], "score_long"] += 1
-    df.loc[df["volume"] > df["vol_mean"], "score_short"] += 1
+    df.loc[df["volume"] > df["vol_mean"] * 1.8, "score_long"] += 1
+    df.loc[df["volume"] > df["vol_mean"] * 1.8, "score_short"] += 1
 
     # BREAKOUT
 
-    df.loc[df["close"] > df["high_20"].shift(1), "score_long"] += 2
-    df.loc[df["close"] < df["low_20"].shift(1), "score_short"] += 2
-
-    # VOLATILITY EXPANSION
-
-    df.loc[df["bb_width"] > df["bb_width_mean"], "score_long"] += 1
-    df.loc[df["bb_width"] > df["bb_width_mean"], "score_short"] += 1
-
-    # ATR Expansion Filter
-    df.loc[df["atr_expansion"], "score_long"] += 1
-    df.loc[df["atr_expansion"], "score_short"] += 1
+    df.loc[df["close"] > df["high_35"].shift(1), "score_long"] += 2
+    df.loc[df["close"] < df["low_35"].shift(1), "score_short"] += 2
 
     # ================= SIGNAL =================
 
     df["signal"] = None
 
-    df.loc[df["score_long"] >= 4, "signal"] = "LONG"
-    df.loc[df["score_short"] >= 4, "signal"] = "SHORT"
+    df.loc[df["score_long"] >= 5, "signal"] = "LONG"
+    df.loc[df["score_short"] >= 5, "signal"] = "SHORT"
 
     # ================= SIGNAL STRENGTH =================
 

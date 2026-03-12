@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 from datetime import datetime
 from telegram_comandos import BOT_ACTIVE
 from telegram_comandos import process_commands
+from data_feed import fetch_btc
 
 import os
 import ccxt
@@ -115,6 +116,18 @@ def trading_loop(executor, exchange):
 
     while True:
 
+        btc_ohlcv = fetch_btc(TIMEFRAME)
+
+        btc_df = pd.DataFrame(
+            btc_ohlcv,
+            columns=["time","open","high","low","close","volume"]
+        )
+
+        btc_df["btc_ema200"] = btc_df["close"].ewm(span=200).mean()
+
+        btc_close = btc_df.iloc[-1]["close"]
+        btc_ema200 = btc_df.iloc[-1]["btc_ema200"]
+
         for symbol in SYMBOLS:
 
             try:
@@ -127,13 +140,20 @@ def trading_loop(executor, exchange):
                 )
 
                 df = apply_indicators(df)
+                df["btc_close"] = btc_close
+                df["btc_ema200"] = btc_ema200
+                
+                last = df.iloc[-2]
 
-                last = df.iloc[-1]
-
+              
                 if last["signal"] is None:
                     continue
 
+
                 if executor.has_position(symbol):
+                    continue
+
+                if btc_close <= btc_ema200:
                     continue
 
                 atr = last["atr"]
@@ -156,7 +176,7 @@ def trading_loop(executor, exchange):
 
                 score = max(last["score_long"], last["score_short"])
                 strength = last["signal_strength"]
-                risk_amount = dynamic_risk(score, balance,strength)
+                risk_amount = dynamic_risk(last["adx"], balance)
 
                 sl_distance = abs(price - sl)
 
@@ -183,9 +203,6 @@ def trading_loop(executor, exchange):
         time.sleep(60)
 
 def position_manager(executor, exchange):
-
-    BUFFER = 0.001
-    TRAIL_MULT = 1.1
 
     while True:
 
@@ -249,31 +266,24 @@ def position_manager(executor, exchange):
                     pos["sl"] = new_sl
                     pos["be_set"] = True
 
-                if rr >= 2 and not pos.get("trail_on", False):
 
+                profit = (price - entry) / entry if side == "LONG" else (entry - price) / entry
+
+                if profit >= 0.04 and not pos.get("trail_on", False):
                     pos["trail_on"] = True
+                    pos["trail_high"] = price
 
                 if pos.get("trail_on", False):
 
-                    if side == "LONG":
+                    if price > pos["trail_high"]:
+                        pos["trail_high"] = price
 
-                        new_sl = price - atr * TRAIL_MULT
+                    trailing_sl = pos["trail_high"] * (1 - 0.022)
 
-                        if new_sl > pos["sl"]:
+                    if trailing_sl > pos["sl"]:
 
-                            executor.update_sl(symbol, "LONG", pos["size"], new_sl)
-
-                            pos["sl"] = new_sl
-
-                    else:
-
-                        new_sl = price + atr * TRAIL_MULT
-
-                        if new_sl < pos["sl"]:
-
-                            executor.update_sl(symbol, "SHORT", pos["size"], new_sl)
-
-                            pos["sl"] = new_sl
+                        executor.update_sl(symbol, "LONG", pos["size"], trailing_sl)
+                        pos["sl"] = trailing_sl
 
         except Exception as e:
 
