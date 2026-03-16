@@ -42,6 +42,9 @@ def calculate_atr(df):
 
 def score_pair(symbol, timeframe):
 
+    # FIX: Reemplazado bare 'except' por 'except Exception as e' con logging.
+    # El except vacío silenciaba errores de red, de API y de lógica por igual,
+    # haciendo imposible diagnosticar problemas reales.
     try:
 
         ohlcv = fetch_ohlcv(symbol, timeframe)
@@ -64,8 +67,10 @@ def score_pair(symbol, timeframe):
 
         return score
 
-    except:
+    except Exception as e:
 
+        # FIX: Ahora se loggea el error para poder diagnosticar problemas
+        print(f"⚠️ Error scoring {symbol}: {repr(e)}")
         return 0
 
 

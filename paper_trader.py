@@ -27,7 +27,6 @@ SL = 0
 DRY_RUN = False
 
 
-
 init_trade_log(FILE,"time,symbol,side,entry,exit,score,strength,net_pnl,balance\n")
 init_trade_log(FILE_POS,"id,symbol\n")
 load_dotenv()
@@ -48,6 +47,7 @@ executor = BitgetExecutor(
     os.getenv("BITGET_API_SECRET"), 
     os.getenv("BITGET_API_PASSPHRASE")
 )
+
 
 def allowed_trading_hour():
     hour = datetime.utcnow().hour
@@ -97,6 +97,7 @@ for pos in open_positions:
 
     print(f"🔄 Recovered position: {symbol} | {side} | entry={entry}")
 
+
 def telegram_loop(executor):
 
     while True:
@@ -110,23 +111,39 @@ def telegram_loop(executor):
             print(f"⚠️ Telegram error: {repr(e)}")
 
         time.sleep(1)
-   
+
 
 def trading_loop(executor, exchange):
 
     while True:
 
-        btc_ohlcv = fetch_btc(TIMEFRAME)
+        # FIX: allowed_trading_hour() estaba definida pero nunca se usaba.
+        # Ahora se verifica al inicio de cada ciclo para respetar la ventana
+        # horaria de trading y evitar operar en horas de baja liquidez.
+        if not allowed_trading_hour():
+            print("⏸️ Fuera de horario de trading (12-22 UTC). Esperando...")
+            time.sleep(60)
+            continue
 
-        btc_df = pd.DataFrame(
-            btc_ohlcv,
-            columns=["time","open","high","low","close","volume"]
-        )
+        try:
 
-        btc_df["btc_ema200"] = btc_df["close"].ewm(span=200).mean()
+            btc_ohlcv = fetch_btc(TIMEFRAME)
 
-        btc_close = btc_df.iloc[-1]["close"]
-        btc_ema200 = btc_df.iloc[-1]["btc_ema200"]
+            btc_df = pd.DataFrame(
+                btc_ohlcv,
+                columns=["time","open","high","low","close","volume"]
+            )
+
+            btc_df["btc_ema200"] = btc_df["close"].ewm(span=200).mean()
+
+            btc_close = btc_df.iloc[-1]["close"]
+            btc_ema200 = btc_df.iloc[-1]["btc_ema200"]
+
+        except Exception as e:
+
+            print(f"⚠️ Error obteniendo datos de BTC: {repr(e)}")
+            time.sleep(60)
+            continue
 
         for symbol in SYMBOLS:
 
@@ -142,13 +159,11 @@ def trading_loop(executor, exchange):
                 df = apply_indicators(df)
                 df["btc_close"] = btc_close
                 df["btc_ema200"] = btc_ema200
-                
+
                 last = df.iloc[-2]
 
-              
                 if last["signal"] is None:
                     continue
-
 
                 if executor.has_position(symbol):
                     continue
@@ -176,7 +191,12 @@ def trading_loop(executor, exchange):
 
                 score = max(last["score_long"], last["score_short"])
                 strength = last["signal_strength"]
-                risk_amount = dynamic_risk(last["adx"], balance)
+
+                # FIX: Se pasa open_positions_count a dynamic_risk para aplicar
+                # el cap de exposición total. Sin esto, 8 posiciones en ADX alto
+                # podían exponer el 16% del balance simultáneamente.
+                open_positions_count = len(executor.positions)
+                risk_amount = dynamic_risk(last["adx"], balance, open_positions_count)
 
                 sl_distance = abs(price - sl)
 
@@ -202,11 +222,27 @@ def trading_loop(executor, exchange):
 
         time.sleep(60)
 
+
 def position_manager(executor, exchange):
 
     while True:
 
         try:
+
+            # Obtener precio de BTC para el filtro macro sobre posiciones abiertas
+            try:
+                btc_ohlcv = fetch_btc(TIMEFRAME)
+                btc_df = pd.DataFrame(
+                    btc_ohlcv,
+                    columns=["time","open","high","low","close","volume"]
+                )
+                btc_df["btc_ema200"] = btc_df["close"].ewm(span=200).mean()
+                btc_close = btc_df.iloc[-1]["close"]
+                btc_ema200 = btc_df.iloc[-1]["btc_ema200"]
+                btc_below_ema = btc_close <= btc_ema200
+            except Exception as e:
+                print(f"⚠️ Error BTC en position_manager: {repr(e)}")
+                btc_below_ema = False  # Si no podemos leer BTC, no cerramos por precaución
 
             closed_positions = executor.check_closed_positions()
 
@@ -240,14 +276,9 @@ def position_manager(executor, exchange):
                 time.sleep(0.2)
                 price = ticker["last"]
 
-                mark = executor.get_mark_price(symbol)
-
                 entry = pos["entry"]
-
                 side = pos["side"]
-
                 initial_sl = pos["initial_sl"]
-
                 atr = pos["atr"]
 
                 sl_dist = abs(entry - initial_sl)
@@ -255,41 +286,73 @@ def position_manager(executor, exchange):
                 if sl_dist == 0:
                     continue
 
+                # FIX: Si BTC rompe la EMA200 y tenemos un LONG abierto,
+                # movemos el SL a breakeven como protección mínima.
+                # Antes el filtro macro solo bloqueaba nuevas entradas pero
+                # no protegía posiciones ya abiertas ante un cambio de tendencia.
+                if btc_below_ema and side == "LONG" and not pos.get("be_set", False):
+                    print(f"⚠️ BTC bajo EMA200 — protegiendo {symbol} con SL en breakeven")
+                    executor.update_sl(symbol, side, pos["size"], entry)
+                    pos["sl"] = entry
+                    pos["be_set"] = True
+                    send_telegram(
+                        f"⚠️ BTC bajo EMA200\n"
+                        f"SL movido a breakeven en {symbol}"
+                    )
+
                 rr = abs(price - entry) / sl_dist
 
                 if rr >= 1 and not pos.get("be_set", False):
 
                     new_sl = entry
-
                     executor.update_sl(symbol, side, pos["size"], new_sl)
-
                     pos["sl"] = new_sl
                     pos["be_set"] = True
-
 
                 profit = (price - entry) / entry if side == "LONG" else (entry - price) / entry
 
                 if profit >= 0.04 and not pos.get("trail_on", False):
                     pos["trail_on"] = True
-                    pos["trail_high"] = price
+                    # FIX: Se inicializa la referencia correcta según el lado:
+                    # trail_high para LONGs, trail_low para SHORTs.
+                    if side == "LONG":
+                        pos["trail_high"] = price
+                    else:
+                        pos["trail_low"] = price
 
+                # FIX: El trailing stop ahora maneja correctamente tanto LONGs
+                # como SHORTs. Antes estaba hardcodeado a "LONG" en update_sl
+                # y solo actualizaba trail_high, rompiendo completamente los SHORTs.
                 if pos.get("trail_on", False):
 
-                    if price > pos["trail_high"]:
-                        pos["trail_high"] = price
+                    if side == "LONG":
 
-                    trailing_sl = pos["trail_high"] * (1 - 0.022)
+                        if price > pos.get("trail_high", price):
+                            pos["trail_high"] = price
 
-                    if trailing_sl > pos["sl"]:
+                        trailing_sl = pos["trail_high"] * (1 - 0.022)
 
-                        executor.update_sl(symbol, "LONG", pos["size"], trailing_sl)
-                        pos["sl"] = trailing_sl
+                        if trailing_sl > pos["sl"]:
+                            executor.update_sl(symbol, "LONG", pos["size"], trailing_sl)
+                            pos["sl"] = trailing_sl
+
+                    elif side == "SHORT":
+
+                        if price < pos.get("trail_low", price):
+                            pos["trail_low"] = price
+
+                        trailing_sl = pos["trail_low"] * (1 + 0.022)
+
+                        if trailing_sl < pos["sl"]:
+                            executor.update_sl(symbol, "SHORT", pos["size"], trailing_sl)
+                            pos["sl"] = trailing_sl
 
         except Exception as e:
 
             print(f"⚠️ Position manager error: {e}")
 
         time.sleep(5)
+
 
 telegram_thread = threading.Thread(
     target=telegram_loop,
