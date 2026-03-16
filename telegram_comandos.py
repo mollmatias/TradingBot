@@ -21,17 +21,22 @@ def get_updates():
 
     url = f"{BASE_URL}/getUpdates"
 
-    params = {}
+    params = {"timeout": 30}
 
     if last_update_id:
         params["offset"] = last_update_id + 1
 
     try:
 
-        r = requests.get(url, params=params).json()
+        r = requests.get(url, params=params, timeout=35).json()
 
         if not r.get("ok"):
-            print("⚠️ Telegram API error:", r)
+            error_code = r.get("error_code", 0)
+            if error_code == 409:
+                print("⚠️ 409 Conflict: otra instancia del bot está corriendo.")
+                time.sleep(10)
+            else:
+                print("⚠️ Telegram API error:", r)
             return []
 
         return r.get("result", [])
@@ -123,9 +128,14 @@ def show_last_trades(file):
 
     with open(file) as f:
         reader = csv.reader(f)
+        next(reader)
 
         for r in reader:
             rows.append(r)
+
+    if not rows:
+        send_message("No hay trades registrados")
+        return
 
     last = rows[-15:]
 
@@ -135,7 +145,8 @@ def show_last_trades(file):
 
         msg += (
             f"{r[1]} {r[2]}\n"
-            f"PnL: {r[5]}\n\n"
+            f"Entry: {r[3]} | Exit: {r[4]}\n"
+            f"PnL: {r[7]} USDT\n\n"
         )
 
     send_message(msg)
@@ -168,7 +179,7 @@ def pnl_today(file):
 
             if trade_time == today:
 
-                pnl += float(r[5])
+                pnl += float(r[7])
 
     send_message(
         f"📈 PnL hoy\n\n{round(pnl,2)} USDT"
@@ -194,7 +205,7 @@ def pnl_week(file):
 
             if now - trade_time < timedelta(days=7):
 
-                pnl += float(r[5])
+                pnl += float(r[7])
 
     send_message(
         f"📊 PnL 7 días\n\n{round(pnl,2)} USDT"
@@ -257,7 +268,7 @@ def show_status(executor, trades_file):
 
             if trade_time == today:
 
-                pnl_today += float(r[5])
+                pnl_today += float(r[7])
 
     msg = (
         f"🤖 BOT STATUS\n\n"
@@ -279,7 +290,7 @@ def equity_curve(file):
 
         for r in reader:
 
-            balances.append(float(r[6]))
+            balances.append(float(r[8]))
 
     if not balances:
 

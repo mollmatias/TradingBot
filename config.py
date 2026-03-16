@@ -23,12 +23,21 @@ PAPER_TRADING = False   # False = LIVE
 # ===== CAPITAL =====
 INITIAL_BALANCE = executor.get_balance()
 
-RISK_PER_TRADE = 0.1
 LEVERAGE = 20
 
 # ===== TP / SL =====
 TP_ATR_MULT = 3.5
 SL_ATR_MULT = 1.75
+
+# ===== SIZING POR SIGNAL STRENGTH =====
+STRENGTH_MULT = {
+    "SPLUS":  1.5,
+    "STRONG": 1.0,
+    "NORMAL": 0.7
+}
+
+# ===== MAX MARGIN PER POSITION =====
+MAX_MARGIN_PCT = 0.15
 
 # ===== FEES BITGET (futuros USDT) =====
 TAKER_FEE = 0.0006     # 0.06%

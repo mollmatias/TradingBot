@@ -1,1 +1,1 @@
-time,symbol,side,entry,exit,net_pnl,balance
+time,symbol,side,entry,exit,score,strength,net_pnl,balance

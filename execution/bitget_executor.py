@@ -1,4 +1,5 @@
 import ccxt
+import math
 import time
 from telegram import send_telegram
 from utils.trade_logger import log_position
@@ -43,67 +44,85 @@ class BitgetExecutor:
             
         return False
 
-    def open_position(self, symbol, side, size, tp, sl,atr,score,strength):
+    def _round_size(self, size, symbol):
+        market = self.exchange.market(symbol)
+        precision = market.get("precision", {}).get("amount")
+        min_amount = market.get("limits", {}).get("amount", {}).get("min")
+
+        if precision is not None:
+            if isinstance(precision, int):
+                factor = 10 ** precision
+                size = math.floor(size * factor) / factor
+            else:
+                size = math.floor(size / precision) * precision
+                size = round(size, 10)
+
+        if min_amount is not None and size < min_amount:
+            size = min_amount
+
+        return size
+
+    def open_position(self, symbol, side, size, tp, sl, atr, score, strength):
         order_side = "buy" if side == "LONG" else "sell"
 
         params = {
-            'stopLoss':{
-                'triggerPrice':sl,
-                'price':sl
+            'stopLoss': {
+                'triggerPrice': sl,
+                'price': sl
             }
         }
 
         balance = self.get_total_balance()
         ticker = self.exchange.fetch_ticker(symbol)
         entry_price = ticker["last"]
+
+        size = self._round_size(size, symbol)
+
         risk_usdt = abs(entry_price - sl) * size
         risk_pct = (risk_usdt / balance) * 100
 
-        
-        risk_amount = balance * 0.01
-        sl_distance = abs(entry_price - sl)
-        size = risk_amount / sl_distance
+        notional = size * entry_price
+        if notional < 5:
+            print(f"⚠️ {symbol}: notional ({notional:.2f} USDT) menor a $5. Orden descartada.")
+            return
 
-        required_margin = (size * entry_price) / 20
+        required_margin = notional / 20
         if required_margin > balance:
-            send_telegram(f"Balance no es suficiente para abrir {side} en {symbol} con el SL en {sl}")
-        else:    
-            # 1️⃣ ORDEN MARKET
+            send_telegram(f"⚠️ Balance insuficiente para {side} en {symbol}")
+        else:
             order = self.exchange.create_order(
                 symbol=symbol,
                 type="market",
                 side=order_side,
                 amount=size,
                 params=params
-            )        
+            )
 
             self.positions[symbol] = {
                 "symbol": symbol,
                 "side": side,
                 "entry": entry_price,
                 "size": size,
-                "original_size": size,  # 👈 clave
+                "original_size": size,
                 "sl": sl,
-                "initial_sl":sl,
-                "trail_on":False,
+                "initial_sl": sl,
+                "trail_on": False,
                 "partial_closed": False,
-                "be_set":False,
-                "atr":atr,
-                "score":score,
-                "strength":strength
+                "be_set": False,
+                "atr": atr,
+                "score": score,
+                "strength": strength
             }
 
+            print(f"🟢 OPEN {side} {symbol} | entry={entry_price:.2f} | size={size}")
 
-            print(f"🟢 OPEN {side} {symbol} | entry={entry_price:.2f}")
-
-            print(f"🎯 TP & SL colocados | TP={tp:.2f} | SL={sl:.2f} | Riesgo USDT: {risk_usdt:.4f} | Riesgo %: {risk_pct:.2f}")
             send_telegram(
                 f"🟢 <b>OPEN {strength} {side} WITH SCORE {score}</b>\n"
                 f"📌 {symbol}\n"
-                f"💰 Entry: {entry_price:.2f}"
-                f"🎯 TP: {tp:.2f}"
-                f"🎯 SL: {sl:.2f}"
-                f"Riesgo USDT: {risk_usdt:.4f} | Riesgo %: {risk_pct:.2f}"
+                f"💰 Entry: {entry_price:.2f}\n"
+                f"🎯 TP: {tp:.2f}\n"
+                f"🛑 SL: {sl:.2f}\n"
+                f"📊 Riesgo: {risk_usdt:.2f} USDT ({risk_pct:.2f}%)"
             )
 
     def check_closed_positions(self):

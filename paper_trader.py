@@ -4,7 +4,7 @@ import pandas as pd
 from execution.bitget_executor import BitgetExecutor
 from pair_selector import select_top_pairs
 from dynamic_risk import dynamic_risk
-from config import SYMBOLS,TIMEFRAME,INITIAL_BALANCE,TAKER_FEE,SL_ATR_MULT,TP_ATR_MULT,RISK_PER_TRADE,LEVERAGE
+from config import SYMBOLS,TIMEFRAME,INITIAL_BALANCE,TAKER_FEE,SL_ATR_MULT,TP_ATR_MULT,LEVERAGE,STRENGTH_MULT,MAX_MARGIN_PCT
 from data_feed import fetch_ohlcv
 from indicators import apply_indicators
 from risk import calculate_contract_size
@@ -12,7 +12,7 @@ from telegram import send_telegram
 from utils.trade_logger import init_trade_log, log_trade
 from dotenv import load_dotenv
 from datetime import datetime
-from telegram_comandos import BOT_ACTIVE
+import telegram_comandos
 from telegram_comandos import process_commands
 from data_feed import fetch_btc
 
@@ -76,11 +76,6 @@ try:
     print(f"✅ {len(market_cache)} markets cargados")
 except Exception as e:
     print(f"⚠️ Error cargando markets: {repr(e)}")
-
-
-def allowed_trading_hour():
-    hour = datetime.utcnow().hour
-    return 12 <= hour <= 22
 
 
 def get_cached_price(symbol):
@@ -191,10 +186,8 @@ def trading_loop(executor, exchange):
 
     while True:
 
-        # FIX: allowed_trading_hour() estaba definida pero nunca se llamaba
-        if not allowed_trading_hour():
-            print("⏸️ Fuera de horario (12-22 UTC). Esperando...")
-            time.sleep(60)
+        if not telegram_comandos.BOT_ACTIVE:
+            time.sleep(10)
             continue
 
         try:
@@ -255,15 +248,19 @@ def trading_loop(executor, exchange):
                 score    = max(last["score_long"], last["score_short"])
                 strength = last["signal_strength"]
 
-                # FIX exposición: pasamos el número de posiciones abiertas
                 open_positions_count = len(executor.positions)
                 risk_amount = dynamic_risk(last["adx"], balance, open_positions_count)
+
+                risk_amount *= STRENGTH_MULT.get(strength, 1.0)
 
                 sl_distance = abs(price - sl)
                 raw_size    = risk_amount / sl_distance
 
-                # Si el size calculado es menor al mínimo del par, round_to_precision
-                # lo sube automáticamente al mínimo permitido por Bitget.
+                max_margin  = balance * MAX_MARGIN_PCT
+                max_size    = (max_margin * LEVERAGE) / price
+                if raw_size > max_size:
+                    raw_size = max_size
+
                 size = round_to_precision(raw_size, symbol)
 
                 if size * price < 5:
