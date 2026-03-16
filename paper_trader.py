@@ -117,14 +117,6 @@ def trading_loop(executor, exchange):
 
     while True:
 
-        # FIX: allowed_trading_hour() estaba definida pero nunca se usaba.
-        # Ahora se verifica al inicio de cada ciclo para respetar la ventana
-        # horaria de trading y evitar operar en horas de baja liquidez.
-        if not allowed_trading_hour():
-            print("⏸️ Fuera de horario de trading (12-22 UTC). Esperando...")
-            time.sleep(60)
-            continue
-
         try:
 
             btc_ohlcv = fetch_btc(TIMEFRAME)
