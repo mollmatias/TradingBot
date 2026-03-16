@@ -125,7 +125,7 @@ def round_to_precision(size, symbol):
             size = round(size, 10)  # limpiar floating point noise
 
     if min_amount is not None and size < min_amount:
-        return 0
+        return min_amount
 
     return size
 
@@ -262,12 +262,9 @@ def trading_loop(executor, exchange):
                 sl_distance = abs(price - sl)
                 raw_size    = risk_amount / sl_distance
 
-                # FIX amount precision: redondear antes de enviar la orden
+                # Si el size calculado es menor al mínimo del par, round_to_precision
+                # lo sube automáticamente al mínimo permitido por Bitget.
                 size = round_to_precision(raw_size, symbol)
-
-                if size == 0:
-                    print(f"⚠️ {symbol}: size ({raw_size:.6f}) menor al mínimo del par. Orden descartada.")
-                    continue
 
                 if size * price < 5:
                     print(f"⚠️ {symbol}: notional ({size * price:.2f} USDT) menor a $5. Orden descartada.")
