@@ -43,7 +43,7 @@ MAX_MARGIN_PCT = 0.15
 TAKER_FEE = 0.0006     # 0.06%
 
 # ===== TIMEFRAME =====
-TIMEFRAME = "4h"
+TIMEFRAME = "1h"
 
 SYMBOLS = [
     "BTC/USDT:USDT",
