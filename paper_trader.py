@@ -37,7 +37,7 @@ SL       = 0
 # True  → simula todo, sin órdenes reales a Bitget
 # False → trading real
 # ──────────────────────────────────────────────
-DRY_RUN       = False
+DRY_RUN       = True
 PAPER_BALANCE = 1000.0  # balance virtual inicial en USDT
 
 # ──────────────────────────────────────────────

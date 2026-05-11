@@ -62,7 +62,7 @@ class BitgetExecutor:
 
         return size
 
-    def open_position(self, symbol, side, size, tp, sl, atr, score, strength):
+    def open_position(self, symbol, side, size, tp, sl, atr, score, strength, atr_pct=0.022):
         order_side = "buy" if side == "LONG" else "sell"
 
         params = {
@@ -110,6 +110,7 @@ class BitgetExecutor:
                 "partial_closed": False,
                 "be_set": False,
                 "atr": atr,
+                "atr_pct": atr_pct,
                 "score": score,
                 "strength": strength
             }
